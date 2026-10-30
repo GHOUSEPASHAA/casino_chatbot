@@ -1,0 +1,25 @@
+
+# LangChain
+langchain
+langchain-core
+langchain-community
+langchain-openai
+
+# LangGraph
+langgraph
+
+# Chainlit
+chainlit
+
+# Snowflake
+snowflake-connector-python
+snowflake-sqlalchemy
+sqlalchemy
+
+# Environment variables
+python-dotenv
+
+# Data processing
+pandas
+pyarrow
+numpy
