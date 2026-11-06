@@ -1,16 +1,15 @@
-
 import chainlit as cl
+from langchain_core.messages import HumanMessage
 from snowagent import graph
-
 
 
 @cl.on_chat_start
 async def on_chat_start():
-
-    cl.user_session.set("messages", [])
+    # Store a persistent thread ID for this specific user session
+    cl.user_session.set("thread_id", cl.context.session.id)
 
     welcome = """
-# Welcome to  Casino AI Assistant! 🎰
+# Welcome to Casino AI Assistant! 🎰
 
 I'm your AI-powered data assistant. Ask questions about
 casino operations, customer spending, revenue and performance.
@@ -24,15 +23,12 @@ casino operations, customer spending, revenue and performance.
 ### 🧖 SPA
 - Which person spent the most on SPA?
 - Which SPA service generated the highest revenue?
- 
 
 ### 🎮 Gaming
 - Which customer generated the highest gaming revenue?
 
-
 ### 👤 Customers & Hosts
 - Who are the top casino hosts?
-
 
 ### 🍽️ POS
 - Which person spent the most on POS?
@@ -40,51 +36,65 @@ casino operations, customer spending, revenue and performance.
 
 ### 🎁 Offers & Campaigns
 - Which campaign performed best?
- 
 
 ---
 
-**Start by asking any question about  Casino data!**
+**Start by asking any question about Casino data!**
 """
-
     await cl.Message(content=welcome).send()
 
 
 @cl.on_message
 async def on_message(message: cl.Message):
+    # Retrieve the session thread_id
+    thread_id = cl.user_session.get("thread_id", cl.context.session.id)
+    config = {"configurable": {"thread_id": thread_id}}
 
-    # Retrieve conversation history
-    messages = cl.user_session.get("messages", [])
+    state_input = {
+        "messages": [HumanMessage(content=message.content)]
+    }
 
-    # Add user question
-    messages.append(("user", message.content))
+    final_response = cl.Message(content="")
+    current_step = None
 
     try:
-        # Execute LangGraph agent
-        result = await cl.make_async(graph.invoke)(
-            {"messages": messages}
-        )
+        # Pass config with thread_id to astream_events
+        async for event in graph.astream_events(state_input, config=config, version="v2"):
+            kind = event["event"]
 
-        # Save conversation history
-        cl.user_session.set(
-            "messages",
-            result["messages"]
-        )
+            # Visual indicator when a tool starts executing
+            if kind == "on_tool_start":
+                tool_name = event.get("name", "Tool")
+                tool_input = event.get("data", {}).get("input")
+                current_step = cl.Step(name=f"Executing: {tool_name}", type="tool")
+                current_step.input = tool_input
+                await current_step.send()
 
-        # Get final AI response
-        answer = ""
+            # Close the step when tool finishes
+            elif kind == "on_tool_end":
+                if current_step:
+                    current_step.output = str(event.get("data", {}).get("output", ""))
+                    await current_step.update()
+                    current_step = None
 
-        for msg in reversed(result["messages"]):
-            if getattr(msg, "type", None) == "ai" and msg.content:
-                answer = msg.content
-                break
+            # Stream final tokens to the user
+            elif kind == "on_chat_model_stream":
+                content = event["data"]["chunk"].content
+                node = event.get("metadata", {}).get("langgraph_node")
 
-        await cl.Message(
-            content=answer or "I couldn't generate an answer."
-        ).send()
+                # Stream tokens from synthesize node or general responder
+                if content and node in ("synthesize", "general_responder"):
+                    await final_response.stream_token(content)
+
+        # Send any non-streamed final message if tokens weren't streamed
+        if not final_response.content:
+            state = await graph.aget_state(config)
+            if state and state.values.get("messages"):
+                last_msg = state.values["messages"][-1]
+                if getattr(last_msg, "content", None):
+                    final_response.content = last_msg.content
+
+        await final_response.send()
 
     except Exception as e:
-
-        await cl.Message(
-            content=f"Error: {str(e)}"
-        ).send()
+        await cl.Message(content=f"Error: {str(e)}").send()
