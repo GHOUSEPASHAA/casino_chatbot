@@ -3,44 +3,57 @@ from langchain_core.messages import HumanMessage
 from snowagent import graph
 
 
+
 @cl.on_chat_start
 async def on_chat_start():
-    # Store a persistent thread ID for this specific user session
-    cl.user_session.set("thread_id", cl.context.session.id)
+
+    # Unique thread ID for this user session
+    cl.user_session.set(
+        "thread_id",
+        cl.context.session.id
+    )
 
     welcome = """
-# Welcome to Casino AI Assistant! 🎰
+# Welcome to Medical Test Results Assistant! 🩺
 
-I'm your AI-powered data assistant. Ask questions about
-casino operations, customer spending, revenue and performance.
+I'm your AI-powered medical test results assistant.
+
+I can help you explore, understand, and analyze your
+medical test results using natural language.
 
 ## What can you explore?
 
-### 🏨 Hotels
-- Show hotel reservations and check-in details.
-- Which property generated the highest hotel revenue?
+### 🧪 Test Results
+- Show my latest test results.
+- Which tests have failed?
+- Show all my test reports.
+- What are my abnormal test results?
 
-### 🧖 SPA
-- Which person spent the most on SPA?
-- Which SPA service generated the highest revenue?
+### 📊 Test Analysis
+- Which test has the highest deviation?
+- Identify tests with drastic changes.
+- Show tests with abnormal values.
+- Summarize my test results.
 
-### 🎮 Gaming
-- Which customer generated the highest gaming revenue?
+### 📈 Trends & Comparisons
+- Compare my latest and previous test results.
+- Which test values have increased?
+- Which test values have decreased?
+- Show my test history over time.
 
-### 👤 Customers & Hosts
-- Who are the top casino hosts?
-
-### 🍽️ POS
-- Which person spent the most on POS?
-- Which property generated the highest POS revenue?
-
-### 🎁 Offers & Campaigns
-- Which campaign performed best?
+### 🔍 Test Report Insights
+- Give me a summary of my latest report.
+- Highlight important changes in my results.
+- Which results require attention?
 
 ---
 
-**Start by asking any question about Casino data!**
+**Start by asking a question about your test results!**
+
+*Note: This assistant provides information about recorded test
+results and is not a substitute for professional medical advice.*
 """
+
     await cl.Message(content=welcome).send()
 
 
@@ -98,3 +111,25 @@ async def on_message(message: cl.Message):
 
     except Exception as e:
         await cl.Message(content=f"Error: {str(e)}").send()
+import chainlit as cl
+
+from auth import authenticate_user
+
+
+@cl.password_auth_callback
+async def password_auth_callback(username: str, password: str):
+
+    user_data = authenticate_user(username, password)
+
+    if not user_data:
+        return None
+
+    return cl.User(
+        identifier=str(user_data["user_id"]),
+        metadata={
+            "email": user_data["email"],
+            "full_name": user_data["full_name"],
+            "role": user_data["role"],
+            "tenant_id": user_data["tenant_id"]
+        }
+    )

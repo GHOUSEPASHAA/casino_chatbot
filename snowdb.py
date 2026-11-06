@@ -9,18 +9,21 @@ from langchain_community.utilities import SQLDatabase
 
 load_dotenv()
 
+# --------------------------------------------------
+# 1. Snowflake configuration
+# --------------------------------------------------
 
-# --------------------------------------------------
-# 1. Snowflake connection
-# --------------------------------------------------
+DATABASE = os.environ["SNOWFLAKE_DATABASE"]
+SCHEMA = os.getenv("SNOWFLAKE_SCHEMA", "BRONZE")
+TABLE = "consolidated_test_results"
 
 connection_url = URL(
     account=os.environ["SNOWFLAKE_ACCOUNT"],
     user=os.environ["SNOWFLAKE_USER"],
     password=os.environ["SNOWFLAKE_PASSWORD"],
     warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-    database=os.environ["SNOWFLAKE_DATABASE"],
-    schema=os.getenv("SNOWFLAKE_SCHEMA", "GOLD"),
+    database=DATABASE,
+    schema=SCHEMA,
     role=os.getenv("SNOWFLAKE_ROLE"),
 )
 
@@ -29,14 +32,9 @@ engine = create_engine(
     pool_pre_ping=True
 )
 
-
 # --------------------------------------------------
-# 2. Snowflake materialized view compatibility
+# 2. Materialized view compatibility
 # --------------------------------------------------
-
-# This Snowflake dialect does not implement this
-# SQLAlchemy reflection method.
-# Return an empty list because we only need tables and views.
 
 engine.dialect.get_materialized_view_names = (
     lambda connection, schema=None, **kwargs: []
@@ -44,51 +42,99 @@ engine.dialect.get_materialized_view_names = (
 
 
 # --------------------------------------------------
-# 3. Retrieve GOLD objects
+# 3. Verify connection
 # --------------------------------------------------
 
-def get_gold_objects():
+def verify_connection():
+
+    with engine.connect() as conn:
+
+        result = conn.exec_driver_sql("""
+            SELECT
+                CURRENT_ACCOUNT(),
+                CURRENT_USER(),
+                CURRENT_DATABASE(),
+                CURRENT_SCHEMA(),
+                CURRENT_ROLE(),
+                CURRENT_WAREHOUSE()
+        """)
+
+        print("\n--- SNOWFLAKE CONNECTION ---")
+        print(result.fetchone())
+
+
+# --------------------------------------------------
+# 4. Verify consolidated table
+# --------------------------------------------------
+
+def verify_table():
 
     inspector = inspect(engine)
 
-    schema = os.getenv("SNOWFLAKE_SCHEMA", "GOLD")
+    tables = inspector.get_table_names(schema=SCHEMA)
+    views = inspector.get_view_names(schema=SCHEMA)
 
-    tables = inspector.get_table_names(schema=schema)
+    print("\n--- AVAILABLE TABLES ---")
+    print(tables)
 
-    views = inspector.get_view_names(schema=schema)
+    print("\n--- AVAILABLE VIEWS ---")
+    print(views)
 
-    return sorted(set(tables + views))
+    all_objects = tables + views
+
+    if TABLE not in all_objects:
+
+        raise RuntimeError(
+            f"{TABLE} not found in {DATABASE}.{SCHEMA}.\n"
+            f"Available objects: {all_objects}"
+        )
+
+    columns = inspector.get_columns(
+        TABLE,
+        schema=SCHEMA
+    )
+
+    print(f"\n--- {TABLE} COLUMNS ---")
+
+    for column in columns:
+        print(f"{column['name']} : {column['type']}")
+
+    return columns
 
 
 # --------------------------------------------------
-# 4. Initialize SQLDatabase
+# 5. Initialize SQLDatabase
 # --------------------------------------------------
 
-db = SQLDatabase(
-    engine=engine,
-    schema=os.getenv("SNOWFLAKE_SCHEMA", "GOLD"),
-    view_support=True,
-    sample_rows_in_table_info=2
-)
+def initialize_database():
+
+    print("\nInitializing SQLDatabase...")
+
+    database = SQLDatabase(
+        engine=engine,
+        schema=SCHEMA,
+        include_tables=[TABLE],
+        view_support=True,
+        sample_rows_in_table_info=3
+    )
+
+    print("\nAvailable SQLDatabase objects:")
+    print(database.get_usable_table_names())
+
+    print("\n--- TABLE INFORMATION ---")
+    print(database.get_table_info([TABLE]))
+
+    return database
 
 
 # --------------------------------------------------
-# 5. Verify hotel view reflection
+# 6. Execution
 # --------------------------------------------------
 
-inspector = inspect(engine)
+verify_connection()
 
-hotel_view = "VW_LLM_HOTEL_STAYS"
+verify_table()
 
-print("Hotel view columns:")
+db = initialize_database()
 
-columns = inspector.get_columns(
-    hotel_view,
-    schema=os.getenv("SNOWFLAKE_SCHEMA", "GOLD")
-)
-
-for column in columns:
-    print(column["name"], column["type"])
-
-
-print("Snowflake connection and view reflection successful!")
+print("\nSnowflake connection and table verification successful!")
