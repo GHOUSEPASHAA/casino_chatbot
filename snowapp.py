@@ -1,17 +1,49 @@
 import chainlit as cl
+from chainlit.types import ThreadDict
 from langchain_core.messages import HumanMessage
+
+from auth import authenticate_user
 from snowagent import graph
+from snowflake_datalayer import SnowflakeDataLayer
 
 
+# --------------------------------------------------
+# 1. Register Data Layer
+# --------------------------------------------------
+@cl.data_layer
+def get_data_layer():
+    return SnowflakeDataLayer()
 
+
+# --------------------------------------------------
+# 2. Authentication Callback
+# --------------------------------------------------
+@cl.password_auth_callback
+async def password_auth_callback(username: str, password: str):
+    user_data = authenticate_user(username, password)
+
+    if not user_data:
+        return None
+
+    return cl.User(
+        identifier=str(user_data["user_id"]),
+        metadata={
+            "email": user_data["email"],
+            "full_name": user_data["full_name"],
+            "role": user_data["role"],
+            "tenant_id": user_data["tenant_id"],
+        },
+    )
+
+
+# --------------------------------------------------
+# 3. New Chat Session
+# --------------------------------------------------
 @cl.on_chat_start
 async def on_chat_start():
-
-    # Unique thread ID for this user session
-    cl.user_session.set(
-        "thread_id",
-        cl.context.session.id
-    )
+    # Bind session to Chainlit's persistent thread_id
+    thread_id = cl.context.session.thread_id or cl.context.session.id
+    cl.user_session.set("thread_id", thread_id)
 
     welcome = """
 # Welcome to Medical Test Results Assistant! 🩺
@@ -53,13 +85,23 @@ medical test results using natural language.
 *Note: This assistant provides information about recorded test
 results and is not a substitute for professional medical advice.*
 """
-
     await cl.Message(content=welcome).send()
 
 
+# --------------------------------------------------
+# 4. Resume Historical Chat (Sidebar Click)
+# --------------------------------------------------
+@cl.on_chat_resume
+async def on_chat_resume(thread: ThreadDict):
+    # Set the resumed thread ID into session for subsequent LangGraph calls
+    cl.user_session.set("thread_id", thread["id"])
+
+
+# --------------------------------------------------
+# 5. Message Execution
+# --------------------------------------------------
 @cl.on_message
 async def on_message(message: cl.Message):
-    # Retrieve the session thread_id
     thread_id = cl.user_session.get("thread_id", cl.context.session.id)
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -71,7 +113,6 @@ async def on_message(message: cl.Message):
     current_step = None
 
     try:
-        # Pass config with thread_id to astream_events
         async for event in graph.astream_events(state_input, config=config, version="v2"):
             kind = event["event"]
 
@@ -95,7 +136,6 @@ async def on_message(message: cl.Message):
                 content = event["data"]["chunk"].content
                 node = event.get("metadata", {}).get("langgraph_node")
 
-                # Stream tokens from synthesize node or general responder
                 if content and node in ("synthesize", "general_responder"):
                     await final_response.stream_token(content)
 
@@ -111,25 +151,3 @@ async def on_message(message: cl.Message):
 
     except Exception as e:
         await cl.Message(content=f"Error: {str(e)}").send()
-import chainlit as cl
-
-from auth import authenticate_user
-
-
-@cl.password_auth_callback
-async def password_auth_callback(username: str, password: str):
-
-    user_data = authenticate_user(username, password)
-
-    if not user_data:
-        return None
-
-    return cl.User(
-        identifier=str(user_data["user_id"]),
-        metadata={
-            "email": user_data["email"],
-            "full_name": user_data["full_name"],
-            "role": user_data["role"],
-            "tenant_id": user_data["tenant_id"]
-        }
-    )

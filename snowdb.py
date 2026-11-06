@@ -138,3 +138,5 @@ verify_table()
 db = initialize_database()
 
 print("\nSnowflake connection and table verification successful!")
+snowflake_engine = db._engine
+print(type(snowflake_engine))
