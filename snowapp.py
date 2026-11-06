@@ -103,7 +103,17 @@ async def on_chat_resume(thread: ThreadDict):
 @cl.on_message
 async def on_message(message: cl.Message):
     thread_id = cl.user_session.get("thread_id", cl.context.session.id)
-    config = {"configurable": {"thread_id": thread_id}}
+    
+    # Retrieve authenticated user from session
+    user = cl.user_session.get("user")
+    user_id = user.identifier if user else None
+
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "user_id": user_id
+        }
+    }
 
     state_input = {
         "messages": [HumanMessage(content=message.content)]
@@ -116,7 +126,6 @@ async def on_message(message: cl.Message):
         async for event in graph.astream_events(state_input, config=config, version="v2"):
             kind = event["event"]
 
-            # Visual indicator when a tool starts executing
             if kind == "on_tool_start":
                 tool_name = event.get("name", "Tool")
                 tool_input = event.get("data", {}).get("input")
@@ -124,22 +133,18 @@ async def on_message(message: cl.Message):
                 current_step.input = tool_input
                 await current_step.send()
 
-            # Close the step when tool finishes
             elif kind == "on_tool_end":
                 if current_step:
                     current_step.output = str(event.get("data", {}).get("output", ""))
                     await current_step.update()
                     current_step = None
 
-            # Stream final tokens to the user
             elif kind == "on_chat_model_stream":
                 content = event["data"]["chunk"].content
                 node = event.get("metadata", {}).get("langgraph_node")
-
                 if content and node in ("synthesize", "general_responder"):
                     await final_response.stream_token(content)
 
-        # Send any non-streamed final message if tokens weren't streamed
         if not final_response.content:
             state = await graph.aget_state(config)
             if state and state.values.get("messages"):

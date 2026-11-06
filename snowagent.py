@@ -17,7 +17,9 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
-
+from langchain_core.runnables import RunnableConfig
+from sqlalchemy import text
+from snowdb import engine
 from snowdb import db
 
 load_dotenv()
@@ -72,11 +74,33 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 
+
+
+def set_snowflake_session_user(user_id: str):
+    """Sets the session variable in Snowflake for RLS enforcement."""
+    if not user_id:
+        return
+    with engine.connect() as conn:
+        conn.execute(
+            text("SET CURRENT_APP_USER = :user_id"),
+            {"user_id": user_id}
+        )
+
+        
 # --------------------------------------------------
 # 5. SQL Generation
 # --------------------------------------------------
 
-def generate_sql_node(state: AgentState):
+def generate_sql_node(state: AgentState, config: RunnableConfig):
+    user_id = config.get("configurable", {}).get("user_id")
+
+    # Set Snowflake session variable for RLS
+    if user_id:
+        with engine.connect() as conn:
+            conn.execute(
+                text("SET CURRENT_APP_USER = :user_id"),
+                {"user_id": str(user_id)}
+            )
 
     system_prompt = load_prompt("sql_generation.txt")
 
