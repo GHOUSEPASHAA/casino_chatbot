@@ -1,10 +1,17 @@
 import chainlit as cl
 from chainlit.types import ThreadDict
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    RemoveMessage,
+)
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from auth import authenticate_user
 from snowagent import graph
 from snowflake_datalayer import SnowflakeDataLayer
+
+CONTEXT_HISTORY_MESSAGE_LIMIT = 10
 
 
 # --------------------------------------------------
@@ -93,8 +100,36 @@ results and is not a substitute for professional medical advice.*
 # --------------------------------------------------
 @cl.on_chat_resume
 async def on_chat_resume(thread: ThreadDict):
-    # Set the resumed thread ID into session for subsequent LangGraph calls
-    cl.user_session.set("thread_id", thread["id"])
+    thread_id = thread["id"]
+    cl.user_session.set("thread_id", thread_id)
+
+    user = cl.user_session.get("user")
+    if not user:
+        raise RuntimeError(
+            "Cannot restore chat history without an authenticated user."
+        )
+
+    history = await SnowflakeDataLayer().get_chat_history(
+        thread_id=thread_id,
+        user_id=user.identifier,
+        limit=CONTEXT_HISTORY_MESSAGE_LIMIT,
+    )
+    messages = [
+        HumanMessage(content=item["content"])
+        if item["role"] == "user"
+        else AIMessage(content=item["content"])
+        for item in history
+    ]
+
+    await graph.aupdate_state(
+        {"configurable": {"thread_id": thread_id}},
+        {
+            "messages": [
+                RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                *messages,
+            ]
+        },
+    )
 
 
 # --------------------------------------------------
