@@ -8,12 +8,12 @@ SCHEMA:
 {schema}
 
 ONLY ALLOWED TABLE:
-CONSOLIDATED_TEST_RESULTS
+consolidated_test_results
 
 RULES:
 
 1. Generate Snowflake SQL only.
-2. Query only CONSOLIDATED_TEST_RESULTS.
+2. Query only consolidated_test_results.
 3. Never query unrelated tables or schemas.
 4. Use only columns that exist in the table schema.
 5. Use appropriate aggregation functions such as COUNT, SUM, AVG, MIN and MAX.
