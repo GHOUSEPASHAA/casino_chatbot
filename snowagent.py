@@ -131,6 +131,11 @@ def synthesize_answer_node(state: AgentState):
         ] + list(state["messages"])
     )
 
+    print("\n========== SYNTHESIS DEBUG ==========", flush=True)
+    print("CONTENT TYPE:", type(response.content).__name__, flush=True)
+    print("CONTENT:", repr(response.content), flush=True)
+    print("=====================================\n", flush=True)
+
     return {
         "messages": [response]
     }
