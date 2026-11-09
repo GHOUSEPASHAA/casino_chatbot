@@ -23,3 +23,7 @@ python-dotenv
 pandas
 pyarrow
 numpy
+
+
+# Authentication and security
+bcrypt
