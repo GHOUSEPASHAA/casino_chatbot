@@ -486,6 +486,59 @@ class SnowflakeDataLayer(BaseDataLayer):
                 "elements": [],
             }
 
+    async def get_chat_history(
+        self,
+        thread_id: str,
+        user_id: str,
+        limit: int = 10,
+    ) -> List[Dict[str, str]]:
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        s.TYPE,
+                        s.OUTPUT
+                    FROM MEDICAL.BRONZE.CHAINLIT_STEPS s
+                    INNER JOIN MEDICAL.BRONZE.CHAINLIT_THREADS t
+                        ON t.ID = s.THREAD_ID
+                    WHERE s.THREAD_ID = :thread_id
+                        AND t.USER_ID = :user_id
+                        AND s.TYPE IN (
+                            'user_message',
+                            'assistant_message'
+                        )
+                        AND COALESCE(s.IS_ERROR, FALSE) = FALSE
+                    ORDER BY s.CREATED_AT DESC, s.ID DESC
+                    LIMIT :limit
+                """),
+                {
+                    "thread_id": thread_id,
+                    "user_id": user_id,
+                    "limit": limit,
+                },
+            ).mappings().all()
+
+        history: List[Dict[str, str]] = []
+        for raw_row in reversed(rows):
+            row = _normalize_row(raw_row)
+            content = _restore_message_text(row.get("OUTPUT"))
+            if not content:
+                continue
+
+            history.append({
+                "role": (
+                    "user"
+                    if row.get("TYPE") == "user_message"
+                    else "assistant"
+                ),
+                "content": content,
+            })
+
+        return history
+
     # --------------------------------------------------
     # List Threads
     # --------------------------------------------------
