@@ -246,6 +246,7 @@ class SnowflakeDataLayer(BaseDataLayer):
     # User Operations
     # --------------------------------------------------
 
+    
     async def get_user(
         self,
         identifier: str,
@@ -257,6 +258,7 @@ class SnowflakeDataLayer(BaseDataLayer):
                 text("""
                     SELECT
                         USER_ID,
+                        TENANT_ID,
                         EMAIL,
                         FULL_NAME,
                         ROLE
@@ -276,19 +278,17 @@ class SnowflakeDataLayer(BaseDataLayer):
             row = _normalize_row(raw_row)
 
             return PersistedUser(
-                id=str(
-                    row.get("USER_ID", "")
-                ),
-                identifier=str(
-                    row.get("USER_ID", "")
-                ),
+                id=str(row.get("USER_ID", "")),
+                identifier=str(row.get("USER_ID", "")),
                 createdAt=datetime.utcnow().isoformat(),
                 metadata={
                     "email": row.get("EMAIL", ""),
                     "name": row.get("FULL_NAME", ""),
                     "role": row.get("ROLE", ""),
+                    "tenant_id": row.get("TENANT_ID"),
                 },
             )
+    
 
     async def create_user(
         self,
