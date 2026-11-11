@@ -3,7 +3,7 @@ import os
 import json
 import asyncio
 import chainlit as cl
-
+from snowdb import get_medical_test_names
 from dotenv import load_dotenv
 from chainlit.types import ThreadDict
 from langchain_core.messages import (
@@ -254,6 +254,19 @@ async def password_auth_callback(
 # --------------------------------------------------
 @cl.on_chat_start
 async def on_chat_start():
+    user = cl.user_session.get("user")
+
+    if user and user.identifier:
+        test_names = await asyncio.to_thread(
+            get_medical_test_names,
+            user.identifier
+        )
+    else:
+        test_names = []
+
+    cl.user_session.set("medical_test_names", test_names)
+    print("AUTOCOMPLETE TEST COUNT:", len(test_names))
+
     thread_id = (
         cl.context.session.thread_id
         or cl.context.session.id

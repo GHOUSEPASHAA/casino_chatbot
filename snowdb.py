@@ -140,3 +140,50 @@ db = initialize_database()
 print("\nSnowflake connection and table verification successful!")
 snowflake_engine = db._engine
 print(type(snowflake_engine))
+
+
+
+# --------------------------------------------------
+# 7. Dynamic Medical Test Names for Autocomplete
+# --------------------------------------------------
+
+from sqlalchemy import text
+
+
+
+def get_medical_test_names(user_id: str) -> list[str]:
+    if not user_id:
+        return []
+
+    query = text("""
+        SELECT DISTINCT TRIM(TEST_NAME) AS TEST_NAME
+        FROM MEDICAL.BRONZE.CONSOLIDATED_TEST_RESULTS
+        WHERE USER_ID = :user_id
+          AND TEST_NAME IS NOT NULL
+          AND TRIM(TEST_NAME) <> ''
+        ORDER BY TEST_NAME
+    """)
+
+    with engine.connect() as conn:
+        try:
+            conn.execute(
+                text("SET CURRENT_APP_USER = :user_id"),
+                {"user_id": str(user_id)}
+            )
+
+            rows = conn.execute(
+                query,
+                {"user_id": str(user_id)}
+            ).scalars().all()
+
+            return list(rows)
+
+        finally:
+            try:
+                conn.execute(
+                    text("UNSET CURRENT_APP_USER")
+                )
+            except Exception:
+                conn.invalidate()
+                raise
+

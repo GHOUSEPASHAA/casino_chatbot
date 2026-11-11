@@ -1,4 +1,5 @@
-
+from fastapi import Depends, HTTPException
+from chainlit.auth import get_current_user
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from chainlit.utils import mount_chainlit
@@ -249,6 +250,24 @@ async def register(
         status_code=400
     )
 
+
+@app.get("/api/medical-test-names")
+async def medical_test_names(user=Depends(get_current_user)):
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required"
+        )
+
+    from snowdb import get_medical_test_names
+    import asyncio
+
+    names = await asyncio.to_thread(
+        get_medical_test_names,
+        user.identifier
+    )
+
+    return {"test_names": names}
 
 # ---------------------------------------
 # Mount Chainlit
